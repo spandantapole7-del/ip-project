@@ -15,12 +15,12 @@ function togglePassword(inputId, button) {
     if (input.type === "password") {
 
         input.type = "text";
-        button.textContent = "🙈";
+        button.textContent = "dYT^";
 
     } else {
 
         input.type = "password";
-        button.textContent = "👁";
+        button.textContent = "dY`?";
 
     }
 }
@@ -42,6 +42,18 @@ function showMessage(message, type) {
 }
 
 
+function setSubmitting(form, isSubmitting) {
+
+    const button = form.querySelector('button[type="submit"]');
+
+    if (button) {
+
+        button.disabled = isSubmitting;
+
+    }
+}
+
+
 // ------------------------------------------
 // SIGNUP
 // ------------------------------------------
@@ -50,7 +62,7 @@ const signupForm = document.getElementById("signupForm");
 
 if (signupForm) {
 
-    signupForm.addEventListener("submit", function(event) {
+    signupForm.addEventListener("submit", async function(event) {
 
         event.preventDefault();
 
@@ -59,7 +71,7 @@ if (signupForm) {
             document.getElementById("signupName").value.trim();
 
         const email =
-            document.getElementById("signupEmail").value.trim();
+            document.getElementById("signupEmail").value.trim().toLowerCase();
 
         const password =
             document.getElementById("signupPassword").value;
@@ -70,8 +82,6 @@ if (signupForm) {
         const terms =
             document.getElementById("terms").checked;
 
-
-        // NAME VALIDATION
 
         if (name.length < 2) {
 
@@ -84,9 +94,7 @@ if (signupForm) {
         }
 
 
-        // EMAIL VALIDATION
-
-        if (!email.includes("@")) {
+        if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
 
             showMessage(
                 "Please enter a valid email address.",
@@ -96,8 +104,6 @@ if (signupForm) {
             return;
         }
 
-
-        // PASSWORD VALIDATION
 
         if (password.length < 6) {
 
@@ -110,8 +116,6 @@ if (signupForm) {
         }
 
 
-        // CONFIRM PASSWORD
-
         if (password !== confirmPassword) {
 
             showMessage(
@@ -122,8 +126,6 @@ if (signupForm) {
             return;
         }
 
-
-        // TERMS
 
         if (!terms) {
 
@@ -136,60 +138,50 @@ if (signupForm) {
         }
 
 
-        // CHECK EXISTING USER
-
-        const existingUser =
-            JSON.parse(localStorage.getItem("hostelUser"));
+        setSubmitting(signupForm, true);
 
 
-        if (
-            existingUser &&
-            existingUser.email === email
-        ) {
+        try {
 
-            showMessage(
-                "An account with this email already exists.",
-                "error"
+            const data = await apiRequest(
+                "/auth/signup",
+                {
+                    method: "POST",
+                    auth: false,
+                    body: {
+                        name: name,
+                        email: email,
+                        password: password
+                    }
+                }
             );
 
-            return;
+
+            saveSession(data.token, data.user);
+
+
+            showMessage(
+                "Account created successfully! Opening dashboard...",
+                "success"
+            );
+
+
+            signupForm.reset();
+
+
+            setTimeout(function() {
+
+                window.location.href = "dashboard.html";
+
+            }, 1000);
+
+        } catch (error) {
+
+            showMessage(error.message, "error");
+
+            setSubmitting(signupForm, false);
+
         }
-
-
-        // SAVE USER
-
-        const user = {
-
-            name: name,
-
-            email: email,
-
-            password: password,
-
-            createdAt: new Date().toISOString()
-
-        };
-
-
-        localStorage.setItem(
-            "hostelUser",
-            JSON.stringify(user)
-        );
-
-
-        showMessage(
-            "Account created successfully! Redirecting...",
-            "success"
-        );
-
-
-        // REDIRECT TO LOGIN
-
-        setTimeout(function() {
-
-            window.location.href = "login.html";
-
-        }, 1500);
 
     });
 
@@ -204,30 +196,22 @@ const loginForm = document.getElementById("loginForm");
 
 if (loginForm) {
 
-    loginForm.addEventListener("submit", function(event) {
+    loginForm.addEventListener("submit", async function(event) {
 
         event.preventDefault();
 
 
         const email =
-            document.getElementById("loginEmail").value.trim();
+            document.getElementById("loginEmail").value.trim().toLowerCase();
 
         const password =
             document.getElementById("loginPassword").value;
 
 
-        // GET SAVED USER
-
-        const savedUser =
-            JSON.parse(localStorage.getItem("hostelUser"));
-
-
-        // NO ACCOUNT
-
-        if (!savedUser) {
+        if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email) || !password) {
 
             showMessage(
-                "No account found. Please create an account first.",
+                "Please enter your email and password.",
                 "error"
             );
 
@@ -235,57 +219,46 @@ if (loginForm) {
         }
 
 
-        // CHECK EMAIL
+        setSubmitting(loginForm, true);
 
-        if (email !== savedUser.email) {
 
-            showMessage(
-                "Incorrect email address.",
-                "error"
+        try {
+
+            const data = await apiRequest(
+                "/auth/login",
+                {
+                    method: "POST",
+                    auth: false,
+                    body: {
+                        email: email,
+                        password: password
+                    }
+                }
             );
 
-            return;
-        }
 
+            saveSession(data.token, data.user);
 
-        // CHECK PASSWORD
-
-        if (password !== savedUser.password) {
 
             showMessage(
-                "Incorrect password.",
-                "error"
+                "Login successful! Opening dashboard...",
+                "success"
             );
 
-            return;
+
+            setTimeout(function() {
+
+                window.location.href = "dashboard.html";
+
+            }, 800);
+
+        } catch (error) {
+
+            showMessage(error.message, "error");
+
+            setSubmitting(loginForm, false);
+
         }
-
-
-        // LOGIN SUCCESS
-
-        localStorage.setItem(
-            "isLoggedIn",
-            "true"
-        );
-
-
-        localStorage.setItem(
-            "currentUser",
-            JSON.stringify(savedUser)
-        );
-
-
-        showMessage(
-            "Login successful! Opening dashboard...",
-            "success"
-        );
-
-
-        setTimeout(function() {
-
-            window.location.href = "dashboard.html";
-
-        }, 1000);
 
     });
 

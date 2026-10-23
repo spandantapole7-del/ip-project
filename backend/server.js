@@ -9,7 +9,7 @@ const {
     pool,
     initializeDatabase,
     closeDatabase,
-    DB_NAME
+    DB_FILE
 } = require("./db");
 
 const app = express();
@@ -221,7 +221,7 @@ const authenticate = asyncHandler(async (req, res, next) => {
                 s.id AS session_id
          FROM hsm_sessions s
          INNER JOIN hsm_users u ON u.id = s.user_id
-         WHERE s.token_hash = ? AND s.expires_at > NOW()
+         WHERE s.token_hash = ? AND s.expires_at > CURRENT_TIMESTAMP
          LIMIT 1`,
         [tokenHash]
     );
@@ -234,9 +234,10 @@ const authenticate = asyncHandler(async (req, res, next) => {
     req.sessionId = Number(rows[0].session_id);
 
     await pool
-        .query("UPDATE hsm_sessions SET last_used_at = NOW() WHERE id = ?", [
-            req.sessionId
-        ])
+        .query(
+            "UPDATE hsm_sessions SET last_used_at = CURRENT_TIMESTAMP WHERE id = ?",
+            [req.sessionId]
+        )
         .catch(() => {});
 
     next();
@@ -370,7 +371,10 @@ app.post(
                 [name, email, hashPassword(password)]
             );
         } catch (error) {
-            if (error.code === "ER_DUP_ENTRY") {
+            if (
+                error.code === "ER_DUP_ENTRY" ||
+                /UNIQUE constraint failed/i.test(error.message || "")
+            ) {
                 throw httpError(
                     409,
                     "An account with this email already exists."
@@ -467,12 +471,13 @@ async function saveBudget(userId, budget) {
             (user_id, total_money, days_remaining, food_budget,
              travel_budget, other_budget)
          VALUES (?, ?, ?, ?, ?, ?)
-         ON DUPLICATE KEY UPDATE
-            total_money = VALUES(total_money),
-            days_remaining = VALUES(days_remaining),
-            food_budget = VALUES(food_budget),
-            travel_budget = VALUES(travel_budget),
-            other_budget = VALUES(other_budget)`,
+         ON CONFLICT(user_id) DO UPDATE SET
+            total_money = excluded.total_money,
+            days_remaining = excluded.days_remaining,
+            food_budget = excluded.food_budget,
+            travel_budget = excluded.travel_budget,
+            other_budget = excluded.other_budget,
+            updated_at = CURRENT_TIMESTAMP`,
         [
             userId,
             budget.totalMoney,
@@ -690,7 +695,7 @@ app.patch(
 
         const [result] = await pool.query(
             `UPDATE hsm_checklist_items
-             SET completed = ?
+             SET completed = ?, updated_at = CURRENT_TIMESTAMP
              WHERE id = ? AND user_id = ?`,
             [completed ? 1 : 0, id, req.user.id]
         );
@@ -769,19 +774,17 @@ app.use((error, req, res, next) => {
     } else if (
         !error.status &&
         [
-            "ECONNREFUSED",
-            "ETIMEDOUT",
-            "ENOTFOUND",
-            "PROTOCOL_CONNECTION_LOST",
-            "ER_ACCESS_DENIED_ERROR",
-            "ER_BAD_DB_ERROR",
-            "ER_NO_SUCH_TABLE",
-            "ER_NOT_SUPPORTED_AUTH_MODE"
+            "SQLITE_CANTOPEN",
+            "SQLITE_READONLY",
+            "SQLITE_BUSY",
+            "SQLITE_FULL",
+            "SQLITE_IOERR",
+            "SQLITE_CORRUPT"
         ].includes(error.code)
     ) {
         status = 503;
         message =
-            "Database unavailable. Check the MySQL settings in backend/.env.";
+            "Database unavailable. Check the SQLite file in backend/data.";
     } else if (!error.status && status >= 500) {
         message = "Internal server error.";
     }
@@ -801,11 +804,14 @@ async function start() {
     try {
         await initializeDatabase();
         databaseReady = true;
-        console.log(`MySQL connected and tables are ready in "${DB_NAME}".`);
+        console.log(`SQLite connected and tables are ready in "${DB_FILE}".`);
     } catch (error) {
-        console.error("WARNING: Could not initialize MySQL:", describeError(error));
         console.error(
-            "Start MySQL and check backend/.env. Database routes will return 503 until it is available."
+            "WARNING: Could not initialize SQLite:",
+            describeError(error)
+        );
+        console.error(
+            "Check that the backend/data folder is writable. Database routes will return 503 until it is available."
         );
     }
 
@@ -829,7 +835,7 @@ async function shutdown(signal) {
         try {
             await closeDatabase();
         } catch (error) {
-            console.error("Failed to close database pool:", error.message);
+            console.error("Failed to close the SQLite database:", error.message);
         }
 
         process.exit(0);
